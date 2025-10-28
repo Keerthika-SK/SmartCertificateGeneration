@@ -1,14 +1,6 @@
 pip
 setuptools
 wheel
-streamlit
-openai
-azure-ai-formrecognizer
-azure-identity
-azure-data-tables
-PyPDF2
-reportlab
-httpx
 streamlit>=1.18.1
 azure-data-tables>=12.3.0
 azure-ai-formrecognizer>=3.2.0
