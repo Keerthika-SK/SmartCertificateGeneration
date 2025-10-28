@@ -244,7 +244,7 @@ def student_workflow(user_email):
             st.warning("No request found. Please submit request first.")
 
         if st.button("Check Status"):
-            st.experimental_rerun()
+            st.rerun()
 
     # Step 5: Certificate preview and download
     elif st.session_state.step == 5:
