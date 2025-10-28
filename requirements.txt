@@ -1,3 +1,6 @@
+pip
+setuptools
+wheel
 streamlit
 openai
 azure-ai-formrecognizer
