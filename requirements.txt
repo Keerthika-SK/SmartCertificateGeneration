@@ -1,0 +1,8 @@
+streamlit
+openai
+azure-ai-formrecognizer
+azure-identity
+azure-data-tables
+PyPDF2
+reportlab
+httpx
