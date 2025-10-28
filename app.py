@@ -6,40 +6,30 @@ from openai import AzureOpenAI
 from azure.ai.formrecognizer import DocumentAnalysisClient
 from azure.core.credentials import AzureKeyCredential
 from PyPDF2 import PdfReader, PdfWriter
-from reportlab.platypus import Paragraph, Frame
-from reportlab.lib.styles import ParagraphStyle
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
-from reportlab.platypus import Paragraph, Frame
-from reportlab.lib.styles import ParagraphStyle
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
 import io
 import base64
+from reportlab.platypus import Paragraph, Frame
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
 import streamlit as st
 
-def show_steps(step):
+def show_steps(current_step):
     steps = ["Input Details", "Generate Letter", "Preview Letter", "Upload & Verify Document", "Admin Approval", "Preview & Download"]
     cols = st.columns(len(steps))
-    for i, (col, label) in enumerate(zip(cols, steps)):
+    for index, (col, step) in enumerate(zip(cols, steps)):
         with col:
-            if step > i:
-                st.markdown(f'<span style="background:#11c26d;color:white;padding:5px;border-radius:10px;">&#10003; {label}</span>', unsafe_allow_html=True)
-            elif step == i:
-                st.markdown(f'<span style="border:2px solid #11c26d;padding:5px;border-radius:10px;color:#11c26d;font-weight:bold;">{label}</span>', unsafe_allow_html=True)
+            if current_step > index:
+                st.markdown(f'<span style="background:#11c26d; color:#fff; padding:5px 10px; border-radius:10px;">&#10003; {step}</span>', unsafe_allow_html=True)
+            elif current_step == index:
+                st.markdown(f'<span style="border:2px solid #11c26d; padding:5px 10px; border-radius:10px; color:#11c26d; font-weight:bold;">{step}</span>', unsafe_allow_html=True)
             else:
-                st.markdown(f'<span style="color:#888;">{label}</span>', unsafe_allow_html=True)
+                st.markdown(f'<span style="color:#888;">{step}</span>', unsafe_allow_html=True)
 
 def create_text_overlay(text, x=45, y=660, width=520, height=180, font_size=14, line_spacing=5):
     packet = io.BytesIO()
     can = canvas.Canvas(packet, pagesize=A4)
-    style = ParagraphStyle(
-        'custom',
-        fontName='Helvetica',
-        fontSize=font_size,
-        leading=font_size + line_spacing,
-        alignment=4  # justified
-    )
+    style = ParagraphStyle('custom', fontName='Helvetica', fontSize=font_size, leading=font_size+line_spacing, alignment=4)
     para = Paragraph(text, style)
     frame = Frame(x, y - height, width, height, showBoundary=0)
     frame.addFromList([para], can)
@@ -49,7 +39,7 @@ def create_text_overlay(text, x=45, y=660, width=520, height=180, font_size=14, 
 
 def pdf_viewer(pdf_bytes, height=650):
     b64 = base64.b64encode(pdf_bytes).decode()
-    iframe = f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="{height}px"></iframe>'
+    iframe = f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="{height}px" frameborder="0"></iframe>'
     st.markdown(iframe, unsafe_allow_html=True)
 
 # ---- Settings ----
