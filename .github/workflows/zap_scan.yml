@@ -1,35 +1,35 @@
-name: OWASP ZAP Security Scan
+name: OWASP ZAP Baseline Scan
 
 on:
-  workflow_dispatch: # Allows manual trigger
   push:
     branches:
       - main
-      - master
+  schedule:
+    - cron: "0 0 * * 0"  # runs once every Sunday
+  workflow_dispatch:      # allows manual trigger
 
 jobs:
   zap_scan:
-    name: Run OWASP ZAP Baseline Scan
     runs-on: ubuntu-latest
+    name: Run OWASP ZAP Baseline Scan
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Fix folder permissions
-        run: sudo chmod -R 777 ${{ github.workspace }}
-
-      - name: Run OWASP ZAP Baseline Scan
+      - name: Run ZAP Baseline Scan
         uses: zaproxy/action-baseline@v0.10.0
         with:
           target: 'https://smartcertify.azurewebsites.net'
+          cmd_options: '-a' # active scan mode
           rules_file_name: '.zap/rules.tsv'
-          cmd_options: '-a'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          allow_issue_writing: false
 
-      - name: Upload ZAP Report (HTML)
+      - name: Upload ZAP reports
         uses: actions/upload-artifact@v4
         with:
-          name: ZAP-Report
-          path: report_html.html
+          name: zap-scan-report
+          path: |
+            report_html.html
+            report_json.json
+            report_md.md
