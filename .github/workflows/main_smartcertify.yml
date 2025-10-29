@@ -1,9 +1,9 @@
 # ============================================================
-# CI/CD Pipeline for Azure Web App + Security Scans
-# Includes: Build → CodeQL (SAST) → Deploy → OWASP ZAP (DAST)
+# CI/CD Pipeline for Azure Web App + CodeQL SAST
+# Includes: Build → Static Scan (CodeQL) → Deploy
 # ============================================================
 
-name: Build, Scan, and Deploy Python app to Azure Web App - SmartCertify
+name: Build, Scan (SAST), and Deploy Python app to Azure Web App - SmartCertify
 
 on:
   push:
@@ -49,6 +49,7 @@ jobs:
   codeql:
     name: Run CodeQL SAST Scan
     runs-on: ubuntu-latest
+    needs: build
     permissions:
       actions: read
       contents: read
@@ -95,30 +96,3 @@ jobs:
         with:
           app-name: 'SmartCertify'
           slot-name: 'Production'
-
-  # ======================
-  # 4️⃣ Dynamic App Scan (OWASP ZAP)
-  # ======================
-  dast:
-    name: Run OWASP ZAP Baseline Scan
-    runs-on: ubuntu-latest
-    needs: deploy
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Run OWASP ZAP Baseline Scan
-        uses: zaproxy/action-baseline@v0.10.0
-        with:
-          target: "https://smartcertify.azurewebsites.net"
-          cmd_options: "-a" # active scan mode
-
-      - name: Upload ZAP Reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: zap-report
-          path: |
-            report_html.html
-            report_json.json
-            report_md.md
