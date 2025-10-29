@@ -1,30 +1,36 @@
 import streamlit as st
-import random, string, smtplib, re, io, base64, httpx, uuid
+import random, string, smtplib, io, base64, httpx, uuid
 from datetime import datetime
 from azure.data.tables import TableServiceClient
 from openai import AzureOpenAI
 from azure.ai.formrecognizer import DocumentAnalysisClient
 from azure.core.credentials import AzureKeyCredential
 from PyPDF2 import PdfReader, PdfWriter
-import io
-import base64
 from reportlab.platypus import Paragraph, Frame
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
-import streamlit as st
 
-def show_steps(current_step):
-    steps = ["Input Details", "Generate Letter", "Preview Letter", "Upload & Verify Document", "Admin Approval", "Preview & Download"]
-    cols = st.columns(len(steps))
-    for index, (col, step) in enumerate(zip(cols, steps)):
-        with col:
-            if current_step > index:
-                st.markdown(f'<span style="background:#11c26d; color:#fff; padding:5px 10px; border-radius:10px;">&#10003; {step}</span>', unsafe_allow_html=True)
-            elif current_step == index:
-                st.markdown(f'<span style="border:2px solid #11c26d; padding:5px 10px; border-radius:10px; color:#11c26d; font-weight:bold;">{step}</span>', unsafe_allow_html=True)
-            else:
-                st.markdown(f'<span style="color:#888;">{step}</span>', unsafe_allow_html=True)
+
+def get_certificate_template():
+    cert_tpl = '''
+This is to certify that Mr./Ms. [Student Name], son/daughter of Mr./Mrs. [Parent's Name], is a bonafide student of Rajalakshmi Engineering College, Chennai, enrolled in the [Department Name] for the [Course Name] program during the academic year [Start Year] to [End Year].
+He/She has completed/ is currently pursuing his/her studies in the [Year/Semester] of the course.
+This certificate is issued to him/her on request for the purpose of [Purpose, e.g., Higher Studies, Bank Loan, Passport, etc.].
+'''
+    return cert_tpl
+
+
+def college_branding():
+    st.markdown("""
+    <div style="text-align:center;">
+      <img src="https://rajalakshmi.org/_next/image?url=%2Flogo.svg&w=384&q=75" style="width:180px; margin-bottom:0.8em;" />
+      <h1 style="font-size:2.7em;color:#6f2ca3;">Rajalakshmi Engineering College</h1>
+      <p style="font-size:1.20em;color:#222;">Bonafide Certificate Request Portal</p>
+    </div>
+    <hr style="margin-bottom:2em;">
+    """, unsafe_allow_html=True)
+
 
 def create_text_overlay(text, x=45, y=660, width=520, height=180, font_size=14, line_spacing=5):
     packet = io.BytesIO()
@@ -37,56 +43,46 @@ def create_text_overlay(text, x=45, y=660, width=520, height=180, font_size=14, 
     packet.seek(0)
     return packet
 
+
 def pdf_viewer(pdf_bytes, height=650):
     b64 = base64.b64encode(pdf_bytes).decode()
     iframe = f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="{height}px" frameborder="0"></iframe>'
     st.markdown(iframe, unsafe_allow_html=True)
 
-# ---- Settings ----
-connection_string = "DefaultEndpointsProtocol=https;AccountName=cloudcomputingteam24;AccountKey=mlPs4Lp4gUiYPJ/veus/d59mGC53o9bjsQBKpGphtxZ6UU45Tu58fBOboJNEu3YHeT73M6ImT4dd+ASt8yxG2Q==;EndpointSuffix=core.windows.net"
+
+# Configuration: Replace with your actual keys and endpoints
+connection_string = "DefaultEndpointsProtocol=https;AccountName=smartcertifydb;AccountKey=3XbtwZAXbadP5uPgSPRaeVD0VcNDP02igNyF1+vbwjJuApwec6B2XTcZCtSBeRPoaKnM+L/ewm7e+AStFLG9dA==;EndpointSuffix=core.windows.net"
 user_table_name = "StudentLogin"
 bonafide_table_name = "BonafideRequests"
+ADMIN_EMAIL = "admin@rec.edu.in"
+ADMIN_PASSWORD = "rec@admin"
+certificate_template = get_certificate_template()
+
+ai_endpoint = "https://skee-me7e071s-eastus2.cognitiveservices.azure.com/"
+ai_api_key = "3QJaFSbooorxbNBFQvoYYcIlPOp6yZ5SCCo4cXLORLZ8wytnyyHUJQQJ99BHACHYHv6XJ3w3AAAAACOGxzlk"
+deployment_name = "smartcertify-gpt4"
+ai_api_version = "2025-01-01-preview"
+
+doc_endpoint = "https://docverifier.cognitiveservices.azure.com/"
+doc_api_key = "5MyHBkcOQPixoYPdry1lOdGTRJVnBMUFRHxxcrqynU5I1BzH55ISJQQJ99BJACGhslBXJ3w3AAALACOGvOv0"
+
+
+# Initialize Azure clients
 service = TableServiceClient.from_connection_string(conn_str=connection_string)
 user_table_client = service.create_table_if_not_exists(table_name=user_table_name)
 bonafide_table_client = service.create_table_if_not_exists(table_name=bonafide_table_name)
-ADMIN_EMAIL = "admin@rec.edu.in"
-ADMIN_PASSWORD = "rec@admin"
-certificate_template = '''
-This is to certify that Mr./Ms. [Student Name], son/daughter of Mr./Mrs. [Parent's Name], is a bonafide student of Rajalakshmi Engineering College, Chennai, enrolled in the [Department Name] for the [Course Name] program during the academic year [Start Year] to [End Year].
-He/She has completed/ is currently pursuing his/her studies in the [Year/Semester] of the course.
-This certificate is issued to him/her on request for the purpose of [Purpose, e.g., Higher Studies, Bank Loan, Passport, etc.].
-'''
-
-ai_endpoint = "https://skee-mff5fbkc-eastus2.cognitiveservices.azure.com/"
-ai_api_key = "F7UGRXFhkjG9JIsUm3s2FXx089ON7lBfruo87vCnJAEzR165MgCYJQQJ99BIACHYHv6XJ3w3AAAAACOGpbGy"
-deployment_name = "Letter-generator"
-ai_api_version = "2025-01-01-preview"
 client = AzureOpenAI(api_version=ai_api_version, azure_endpoint=ai_endpoint, api_key=ai_api_key, timeout=httpx.Timeout(30.0))
-doc_endpoint = "https://documentverifier.cognitiveservices.azure.com/"
-doc_api_key = "LFiuyHgu5btJnQkmoWybnX3JEa1tgRBbs9jMbgpicvpmoVC7EPrHJQQJ99BIACGhslBXJ3w3AAALACOGMc9l"
 doc_client = DocumentAnalysisClient(endpoint=doc_endpoint, credential=AzureKeyCredential(doc_api_key))
 
-def send_otp_email(to_email, otp):
-    SMTP_SERVER = "smtp.gmail.com"
-    SMTP_PORT = 587
-    SMTP_USERNAME = "k44423759@gmail.com"
-    SMTP_PASSWORD = "nlgo qefn cuyr pije"
-    subject = "Your OTP for REC Bonafide Portal"
-    body = f"Dear Student,\n\nYour OTP for password reset is: {otp}\n\nRegards,\nREC Digital Desk"
-    message = f"Subject: {subject}\n\n{body}"
-    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-        server.starttls()
-        server.login(SMTP_USERNAME, SMTP_PASSWORD)
-        server.sendmail(SMTP_USERNAME, to_email, message)
 
-def generate_otp(length=6):
-    return ''.join(random.choices(string.digits, k=length))
 def check_student_login(email, password):
     entities = user_table_client.query_entities(f"PartitionKey eq '{email}'")
     for entity in entities:
         if entity.get("Password") == password:
             return True
     return False
+
+
 def store_bonafide_request(email, entries, letter, doc_status):
     row_key = str(uuid.uuid4())
     entity = {
@@ -101,30 +97,28 @@ def store_bonafide_request(email, entries, letter, doc_status):
         "RequestDate": datetime.utcnow().isoformat()
     }
     bonafide_table_client.create_entity(entity=entity)
+
+
 def update_bonafide_status(rowkey, status):
     entity = next(e for e in bonafide_table_client.list_entities() if e["RowKey"] == rowkey)
     entity["AdminApproval"] = status
     bonafide_table_client.update_entity(entity)
-def college_branding():
-    st.markdown("""
-    <div style="text-align:center;">
-      <img src="https://www.rajalakshmi.org/images/logo.png" style="width:180px; margin-bottom:0.8em;" />
-      <h1 style="font-size:2.7em;color:#6f2ca3;">Rajalakshmi Engineering College</h1>
-      <p style="font-size:1.20em;color:#222;">Bonafide Certificate Request Portal</p>
-    </div>
-    <hr style="margin-bottom:2em;">
-    """, unsafe_allow_html=True)
+
 
 def extract_text(uploaded_file):
     poller = doc_client.begin_analyze_document("prebuilt-document", document=uploaded_file)
     result = poller.result()
     text = " ".join(line.content for page in result.pages for line in page.lines)
     return text
+
+
 def verify_fields(extracted_text, expected_name, expected_regno):
     name_ok = expected_name.lower() in extracted_text.lower()
     regno_ok = expected_regno.lower() in extracted_text.lower()
     col_ok = "rajalakshmi engineering college" in extracted_text.lower()
     return name_ok, regno_ok, col_ok
+
+
 def login():
     college_branding()
     with st.form("login_form"):
@@ -151,27 +145,124 @@ def login():
                 else:
                     st.error("Invalid student credentials.")
 
+
+def student_dashboard_page():
+    college_branding()
+    st.markdown("""
+    <style>
+    .cert-header {font-size: 2em;font-weight: 780;color: #22397d; margin-bottom: 6px;margin-top: 10px;letter-spacing: 1px;}
+    .cert-desc {color: #333;font-size: 1.07em;padding-bottom: 16px;margin-top: 0.2em;}
+    .section-title {color: #22397d;font-size: 1.25em;font-weight: 700;margin-top: 20px;margin-bottom: 8px;letter-spacing: 0.5px;}
+    .info-box {background: linear-gradient(135deg, #f6f9fd 80%, #eaf0ff 100%);border-radius: 14px;padding: 20px 22px 10px 22px; margin-bottom: 18px;box-shadow: 0 1px 8px rgba(34,57,125,0.09);}
+    .neat-btn-row {display: flex;justify-content: center;gap: 55px;margin-top: 32px;}
+    .neat-btn {background: #22397d;color: #fff;font-weight: 700;border: none;border-radius: 15px;padding: 22px 38px;font-size: 1.18em;box-shadow: 0 4px 15px rgba(34,57,125,0.12);cursor: pointer;transition: background 0.2s;min-width: 210px;text-align: center;outline:none;letter-spacing: 0.5px;line-height: 1.3em;}
+    .neat-btn:hover {background: #384fa8;color: #f1eafb;}
+    .dash-card {background:#f4f6fc; border-radius:13px;display:inline-block; box-shadow:0 2px 12px rgba(34,57,125,0.09); margin:14px 18px; min-width:180px; padding:20px 22px 15px 22px; text-align:center; color:#22397d; }
+    .card-title {font-size:1.15em;font-weight:700;}
+    .card-value {font-size:2.1em;font-weight:800; margin-top:3px;}
+    </style>
+    """, unsafe_allow_html=True)
+    st.markdown('<div class="cert-header">Application for Bonafide Certificate</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Description</div>', unsafe_allow_html=True)
+    st.markdown("""<div class="cert-desc">Bonafide certificate is a document provided by the institution confirming and testifying that you are a student enrolled at Rajalakshmi Engineering College. This certificate establishes your identity as a student for all legal and official purposes such as admission, scholarships, bank loans, passport applications, etc.</div>""", unsafe_allow_html=True)
+    col_docs, col_how = st.columns(2)
+    with col_docs:
+        st.markdown('<div class="section-title">Supporting Documents</div>', unsafe_allow_html=True)
+        st.markdown("""
+        <div class="info-box">
+        <ul style="font-size:1.07em;color:#333;">
+            <li>College ID Proof</li>
+            <li>Parent/Guardian ID Proof</li>
+            <li>Relevant supporting document (for purpose)</li>
+        </ul>
+        </div>
+        """, unsafe_allow_html=True)
+    with col_how:
+        st.markdown('<div class="section-title">How To Apply</div>', unsafe_allow_html=True)
+        st.markdown("""
+        <div class="info-box"><ul style="font-size:1.07em;color:#333;">
+            <li>Fill out your details and submit the online application</li>
+            <li>Upload your supporting document(s)</li>
+            <li>Await admin approval and verification</li>
+            <li>Download bonafide certificate when approved</li>
+        </ul></div>
+        """, unsafe_allow_html=True)
+
+    requests = [e for e in bonafide_table_client.list_entities() if e["PartitionKey"] == st.session_state.get("user")]
+    pending = len([r for r in requests if r["AdminApproval"] == "Pending"])
+    approved = len([r for r in requests if r["AdminApproval"] == "Approved"])
+    rejected = len([r for r in requests if r["AdminApproval"] == "Rejected"])
+
+    st.markdown('<div style="text-align:center;">', unsafe_allow_html=True)
+    st.markdown(f'<div class="dash-card"><div class="card-title">Pending Requests</div><div class="card-value">{pending}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="dash-card"><div class="card-title">Approved</div><div class="card-value">{approved}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="dash-card"><div class="card-title">Rejected</div><div class="card-value">{rejected}</div></div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="neat-btn-row">', unsafe_allow_html=True)
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        if st.button("Request Certificate", key="req_cert_btn"):
+            st.session_state.student_page = "request_workflow"
+    with col2:
+        if st.button("Check Status", key="status_btn"):
+            st.session_state.student_page = "status_page"
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+def admin_dashboard():
+    college_branding()
+    requests = [e for e in bonafide_table_client.list_entities()]
+    pending = len([r for r in requests if r["AdminApproval"] == "Pending"])
+    approved = len([r for r in requests if r["AdminApproval"] == "Approved"])
+    rejected = len([r for r in requests if r["AdminApproval"] == "Rejected"])
+
+    st.markdown("""
+    <style>
+    .dash-card {background:#f4f6fc; border-radius:13px;display:inline-block; box-shadow:0 2px 12px rgba(34,57,125,0.09); margin:14px 18px; min-width:190px; padding:20px 28px 15px 28px; text-align:center; color:#22397d; }
+    .card-title {font-size:1.13em;font-weight:700;}
+    .card-value {font-size:2em;font-weight:800; margin-top:3px;}
+    </style>
+    """, unsafe_allow_html=True)
+    st.markdown('<div style="text-align:center;">', unsafe_allow_html=True)
+    st.markdown(f'<div class="dash-card"><div class="card-title">Pending</div><div class="card-value">{pending}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="dash-card"><div class="card-title">Approved</div><div class="card-value">{approved}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="dash-card"><div class="card-title">Rejected</div><div class="card-value">{rejected}</div></div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.header("Pending Bonafide Requests")
+    for req in [r for r in requests if r["AdminApproval"] == "Pending"]:
+        st.markdown(f"**Name:** {req.get('StudentName', '')}")
+        st.markdown(f"**Roll No:** {req.get('RegNo', '')}")
+        st.markdown(f"**Purpose:** {req.get('Purpose', '')}")
+        if st.button(f"View Letter - {req['RowKey']}"):
+            st.text_area("Request Letter Preview", req.get("GeneratedLetter", ""), height=250)
+        accept_key = f"accept_{req['RowKey']}"
+        if st.button("Accept", key=accept_key):
+            update_bonafide_status(req["RowKey"], "Approved")
+            st.session_state["approval_done"] = True
+            st.success(f"Request approved for {req.get('StudentName', '')}")
+
+
 def student_workflow(user_email):
     college_branding()
-
     if "step" not in st.session_state:
         st.session_state.step = 0
     if "approval_done" not in st.session_state:
         st.session_state.approval_done = False
-
-    # Step 0: collect details
     if st.session_state.step == 0:
         st.header("Request Bonafide Certificate")
-        st.session_state.entries = {}
-        st.session_state.entries["Student Name"] = st.text_input("Student Name")
-        st.session_state.entries["Parent's Name"] = st.text_input("Parent's Name")
-        st.session_state.entries["Department Name"] = st.text_input("Department Name")
-        st.session_state.entries["Course Name"] = st.text_input("Course Name")
-        st.session_state.entries["Start Year"] = st.text_input("Start Year")
-        st.session_state.entries["End Year"] = st.text_input("End Year")
-        st.session_state.entries["Year/Semester"] = st.text_input("Year/Semester")
-        st.session_state.entries["Purpose"] = st.text_input("Purpose")
-        st.session_state.entries["Reg No"] = st.text_input("Reg No")
+        st.session_state.entries = {
+            "Student Name": st.text_input("Student Name"),
+            "Parent's Name": st.text_input("Parent's Name"),
+            "Department Name": st.text_input("Department Name"),
+            "Course Name": st.text_input("Course Name"),
+            "Start Year": st.text_input("Start Year"),
+            "End Year": st.text_input("End Year"),
+            "Year/Semester": st.text_input("Year/Semester"),
+            "Purpose": st.text_input("Purpose"),
+            "Reg No": st.text_input("Reg No")
+        }
         if st.button("Generate Letter"):
             if all(st.session_state.entries.values()):
                 prompt = f"""Write a formal Bonafide Certificate request letter:\n{st.session_state.entries}"""
@@ -188,8 +279,6 @@ def student_workflow(user_email):
                 st.session_state.step = 1
             else:
                 st.error("Please fill all fields.")
-
-    # Step 1: edit generated letter
     elif st.session_state.step == 1:
         st.header("Edit Letter")
         st.session_state.letter_text = st.text_area("Letter", value=st.session_state.letter_text, height=250)
@@ -198,15 +287,11 @@ def student_workflow(user_email):
                 st.session_state.step = 2
             else:
                 st.error("Letter can't be empty")
-
-    # Step 2: preview letter
     elif st.session_state.step == 2:
         st.header("Preview Letter")
         st.write(st.session_state.letter_text)
         if st.button("Next: Upload Document"):
             st.session_state.step = 3
-
-    # Step 3: document upload and verification
     elif st.session_state.step == 3:
         st.header("Upload Supporting Document")
         doc = st.file_uploader("Upload Document (PDF, JPG, PNG)", type=["pdf", "jpg", "jpeg", "png"])
@@ -229,8 +314,6 @@ def student_workflow(user_email):
                 except Exception as e:
                     doc_status = "Verification Error"
                     st.error(f"Verification error: {e}")
-
-    # Step 4: wait for admin approval
     elif st.session_state.step == 4:
         st.header("Waiting for Admin Approval...")
         records = [e for e in bonafide_table_client.list_entities() if e["PartitionKey"] == user_email]
@@ -242,11 +325,8 @@ def student_workflow(user_email):
                 st.info(f"Current status: {status}. Please refresh or check back later.")
         else:
             st.warning("No request found. Please submit request first.")
-
         if st.button("Check Status"):
             st.experimental_rerun()
-
-    # Step 5: Certificate preview and download
     elif st.session_state.step == 5:
         st.header("Certificate Preview & Download")
         try:
@@ -272,7 +352,6 @@ Return ONLY the final certificate text formatted appropriately with all replacem
                     temperature=0,
                 )
                 cert_text = resp.choices[0].message.content
-
             packet = create_text_overlay(cert_text)
             overlay_pdf = PdfReader(packet)
             template_page = template_pdf.pages[0]
@@ -282,36 +361,12 @@ Return ONLY the final certificate text formatted appropriately with all replacem
             out_bytes = io.BytesIO()
             writer.write(out_bytes)
             out_bytes.seek(0)
-
             st.markdown('<span style="font-size:1.5em">👁 <b>Preview Certificate</b></span>', unsafe_allow_html=True)
             pdf_viewer(out_bytes.read())
-
             st.download_button("Download Certificate PDF", out_bytes.getvalue(), "bonafide_certificate.pdf", "application/pdf")
             st.text_area("Certificate Text", cert_text, height=300)
-
         except FileNotFoundError:
             st.error("Certificate template file template.pdf not found in the current folder.")
-
-def admin_dashboard():
-    college_branding()
-    st.header("Pending Bonafide Requests")
-    requests = [e for e in bonafide_table_client.list_entities() if e["AdminApproval"] == "Pending"]
-    for req in requests:
-        st.markdown(f"**Name:** {req.get('StudentName', '')}")
-        st.markdown(f"**Roll No:** {req.get('RegNo', '')}")
-        st.markdown(f"**Purpose:** {req.get('Purpose', '')}")
-
-        if st.button(f"View Letter - {req['RowKey']}"):
-            st.text_area("Request Letter Preview", req.get("GeneratedLetter", ""), height=250)
-
-        accept_key = f"accept_{req['RowKey']}"
-        if st.button("Accept", key=accept_key):
-            # Update status
-            update_bonafide_status(req["RowKey"], "Approved")
-            # Set approval done flag in session state
-            st.session_state["approval_done"] = True
-            st.success(f"Request approved for {req.get('StudentName', '')}")
-
 
 
 def main():
@@ -319,9 +374,19 @@ def main():
         login()
     else:
         if st.session_state.get("role") == "student":
-            student_workflow(st.session_state.get("user"))
+            if "student_page" not in st.session_state:
+                st.session_state.student_page = "dashboard"
+            if st.session_state.student_page == "dashboard":
+                student_dashboard_page()
+            elif st.session_state.student_page == "request_workflow":
+                student_workflow(st.session_state.get("user"))
+            elif st.session_state.student_page == "status_page":
+                st.info("Status tracking page coming soon!")  # Replace with your status page or logic!
+                if st.button("Back to Dashboard"):
+                    st.session_state.student_page = "dashboard"
         elif st.session_state.get("role") == "admin":
             admin_dashboard()
+
 
 if __name__ == "__main__":
     main()
